@@ -3,6 +3,8 @@ package serverconfig;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
@@ -94,6 +96,9 @@ public class ServerConfig extends JavaPlugin implements Listener {
     // ---- per-player data from data.yml ----
     private final Map<UUID, Double> speedMult = new HashMap<>();
     private final Map<UUID, Double> regenMult = new HashMap<>();
+    private final Map<UUID, Double> attackSpeedMap = new HashMap<>();
+    private final Map<UUID, Double> maxHealthMap = new HashMap<>();
+    private final Map<UUID, Double> armorMap = new HashMap<>();
     private final Set<UUID> exempt = new HashSet<>();
     private File dataFile;
 
@@ -228,6 +233,12 @@ public class ServerConfig extends JavaPlugin implements Listener {
         regenMult.clear();
         readUuidMap(data.getConfigurationSection("speed"), speedMult);
         readUuidMap(data.getConfigurationSection("regen"), regenMult);
+        attackSpeedMap.clear();
+        maxHealthMap.clear();
+        armorMap.clear();
+        readUuidMap(data.getConfigurationSection("attackspeed"), attackSpeedMap);
+        readUuidMap(data.getConfigurationSection("maxhealth"), maxHealthMap);
+        readUuidMap(data.getConfigurationSection("armor"), armorMap);
         exempt.clear();
         for (String id : data.getStringList("exempt")) {
             try {
@@ -256,6 +267,15 @@ public class ServerConfig extends JavaPlugin implements Listener {
         }
         for (Map.Entry<UUID, Double> e : regenMult.entrySet()) {
             data.set("regen." + e.getKey(), e.getValue());
+        }
+        for (Map.Entry<UUID, Double> e : attackSpeedMap.entrySet()) {
+            data.set("attackspeed." + e.getKey(), e.getValue());
+        }
+        for (Map.Entry<UUID, Double> e : maxHealthMap.entrySet()) {
+            data.set("maxhealth." + e.getKey(), e.getValue());
+        }
+        for (Map.Entry<UUID, Double> e : armorMap.entrySet()) {
+            data.set("armor." + e.getKey(), e.getValue());
         }
         List<String> exemptIds = new ArrayList<>();
         for (UUID id : exempt) {
@@ -629,7 +649,9 @@ public class ServerConfig extends JavaPlugin implements Listener {
     // Per-player speed and regen
     // =====================================================================
 
+    /** Applies saved attribute edits, then the saved speed multiplier. */
     private void applySpeed(Player p) {
+        applyAttributes(p);
         Double m = speedMult.get(p.getUniqueId());
         if (m == null) return;
         p.setWalkSpeed((float) Math.min(1.0, 0.2 * m));
@@ -650,7 +672,13 @@ public class ServerConfig extends JavaPlugin implements Listener {
     public void onRespawn(PlayerRespawnEvent e) {
         final Player p = e.getPlayer();
         getServer().getScheduler().runTask(this, () -> {
-            if (p.isOnline()) applySpeed(p);
+            if (!p.isOnline()) return;
+            applySpeed(p);
+            // Respawn at full health when max health has been edited.
+            AttributeInstance hp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+            if (hp != null && maxHealthMap.containsKey(p.getUniqueId())) {
+                p.setHealth(hp.getValue());
+            }
         });
     }
 
@@ -674,6 +702,34 @@ public class ServerConfig extends JavaPlugin implements Listener {
             return;
         }
         e.setAmount(e.getAmount() * mult);
+    }
+
+    private void applyAttributes(Player p) {
+        UUID id = p.getUniqueId();
+        setAttr(p, Attribute.GENERIC_ATTACK_SPEED, attackSpeedMap.get(id));
+        setAttr(p, Attribute.GENERIC_MAX_HEALTH, maxHealthMap.get(id));
+        setAttr(p, Attribute.GENERIC_ARMOR, armorMap.get(id));
+    }
+
+    private void setAttr(Player p, Attribute attr, Double value) {
+        if (value == null) return;
+        AttributeInstance inst = p.getAttribute(attr);
+        if (inst == null) return;
+        try {
+            inst.setBaseValue(value);
+        } catch (IllegalArgumentException e) {
+            getLogger().warning("Could not set " + attr + " for " + p.getName()
+                    + " (blocked by a spigot.yml limit?)");
+            return;
+        }
+        clampHealth(p);
+    }
+
+    private void clampHealth(Player p) {
+        AttributeInstance hp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        if (hp != null && p.getHealth() > hp.getValue()) {
+            p.setHealth(hp.getValue());
+        }
     }
 
     // =====================================================================
@@ -722,6 +778,16 @@ public class ServerConfig extends JavaPlugin implements Listener {
             case "regen":
                 cmdRegen(s, a);
                 break;
+            case "attackspeed":
+                cmdAttribute(s, a, "attack speed", Attribute.GENERIC_ATTACK_SPEED, attackSpeedMap, 1.0, false);
+                break;
+            case "maxhealth":
+                cmdAttribute(s, a, "max health", Attribute.GENERIC_MAX_HEALTH, maxHealthMap, 2.0, true);
+                break;
+            case "armor":
+            case "armour":
+                cmdAttribute(s, a, "armour", Attribute.GENERIC_ARMOR, armorMap, 1.0, false);
+                break;
             case "exempt":
                 cmdExempt(s, a);
                 break;
@@ -745,6 +811,9 @@ public class ServerConfig extends JavaPlugin implements Listener {
         s.sendMessage(ChatColor.YELLOW + "/sc limit <item[@data]> <max|off>   /sc limit list");
         s.sendMessage(ChatColor.YELLOW + "/sc speed <player> <multiplier|reset>");
         s.sendMessage(ChatColor.YELLOW + "/sc regen <player|default> <multiplier|reset>");
+        s.sendMessage(ChatColor.YELLOW + "/sc attackspeed <player> <value|reset>   (normal = 4)");
+        s.sendMessage(ChatColor.YELLOW + "/sc maxhealth <player> <hearts|reset>   (normal = 10)");
+        s.sendMessage(ChatColor.YELLOW + "/sc armor <player> <points|reset>   (normal = 0)");
         s.sendMessage(ChatColor.YELLOW + "/sc exempt <player> [on|off]   /sc exempt list");
     }
 
@@ -768,6 +837,15 @@ public class ServerConfig extends JavaPlugin implements Listener {
         s.sendMessage(ChatColor.YELLOW + "Item limits: " + limits.size() + " (use /sc limit list)");
         s.sendMessage(ChatColor.YELLOW + "Default regen multiplier: " + fmt(regenDefault));
         s.sendMessage(ChatColor.YELLOW + "Exempt players: " + exempt.size() + " (use /sc exempt list)");
+        for (Map.Entry<UUID, Double> e : attackSpeedMap.entrySet()) {
+            s.sendMessage(ChatColor.GRAY + "  attack speed " + name(e.getKey()) + ": " + fmt(e.getValue()));
+        }
+        for (Map.Entry<UUID, Double> e : maxHealthMap.entrySet()) {
+            s.sendMessage(ChatColor.GRAY + "  max health " + name(e.getKey()) + ": " + fmt(e.getValue() / 2.0) + " hearts");
+        }
+        for (Map.Entry<UUID, Double> e : armorMap.entrySet()) {
+            s.sendMessage(ChatColor.GRAY + "  armour " + name(e.getKey()) + ": " + fmt(e.getValue()));
+        }
         for (Map.Entry<UUID, Double> e : speedMult.entrySet()) {
             s.sendMessage(ChatColor.GRAY + "  speed " + name(e.getKey()) + ": x" + fmt(e.getValue()));
         }
@@ -987,6 +1065,54 @@ public class ServerConfig extends JavaPlugin implements Listener {
         ok(s, p.getName() + "'s regen is now x" + fmt(m) + ".");
     }
 
+    /** Shared handler for /sc attackspeed, maxhealth and armor. factor converts typed units to attribute units. */
+    private void cmdAttribute(CommandSender s, String[] a, String what, Attribute attr,
+                              Map<UUID, Double> map, double factor, boolean mustBePositive) {
+        if (a.length != 3) {
+            help(s);
+            return;
+        }
+        Player p = Bukkit.getPlayerExact(a[1]);
+        if (p == null) {
+            s.sendMessage(ChatColor.RED + "That player must be online.");
+            return;
+        }
+        AttributeInstance inst = p.getAttribute(attr);
+        if (inst == null) {
+            s.sendMessage(ChatColor.RED + "Can't edit " + what + " for that player.");
+            return;
+        }
+        if (a[2].equalsIgnoreCase("reset")) {
+            map.remove(p.getUniqueId());
+            try {
+                inst.setBaseValue(inst.getDefaultValue());
+            } catch (IllegalArgumentException ignored) {
+                // leave as is
+            }
+            clampHealth(p);
+            saveData();
+            ok(s, p.getName() + "'s " + what + " is back to normal.");
+            return;
+        }
+        Double v = num(a[2]);
+        if (v == null || (mustBePositive && v <= 0)) {
+            bad(s);
+            return;
+        }
+        double raw = v * factor;
+        try {
+            inst.setBaseValue(raw);
+        } catch (IllegalArgumentException e) {
+            s.sendMessage(ChatColor.RED + "The server won't allow that value. Spigot has its own upper limits "
+                    + "in spigot.yml (attribute section). Try a lower number.");
+            return;
+        }
+        map.put(p.getUniqueId(), raw);
+        clampHealth(p);
+        saveData();
+        ok(s, p.getName() + "'s " + what + " is now " + fmt(v) + ".");
+    }
+
     private void cmdExempt(CommandSender s, String[] a) {
         if (a.length == 2 && a[1].equalsIgnoreCase("list")) {
             if (exempt.isEmpty()) {
@@ -1044,7 +1170,7 @@ public class ServerConfig extends JavaPlugin implements Listener {
         List<String> out = new ArrayList<>();
         if (!s.hasPermission("serverconfig.admin")) return out;
         if (a.length == 1) {
-            add(out, a[0], "info", "reload", "damage", "knockback", "potion", "enchant", "limit", "speed", "regen", "exempt");
+            add(out, a[0], "info", "reload", "damage", "knockback", "potion", "enchant", "limit", "speed", "regen", "attackspeed", "maxhealth", "armor", "exempt");
         } else if (a.length == 2) {
             switch (a[0].toLowerCase()) {
                 case "damage":
@@ -1074,6 +1200,14 @@ public class ServerConfig extends JavaPlugin implements Listener {
                         add(out, a[1], p.getName());
                     }
                     break;
+                case "attackspeed":
+                case "maxhealth":
+                case "armor":
+                case "armour":
+                    for (Player p : getServer().getOnlinePlayers()) {
+                        add(out, a[1], p.getName());
+                    }
+                    break;
                 case "speed":
                 case "regen":
                     if (a[0].equalsIgnoreCase("regen")) add(out, a[1], "default");
@@ -1088,6 +1222,10 @@ public class ServerConfig extends JavaPlugin implements Listener {
             switch (a[0].toLowerCase()) {
                 case "speed":
                 case "regen":
+                case "attackspeed":
+                case "maxhealth":
+                case "armor":
+                case "armour":
                     add(out, a[2], "reset");
                     break;
                 case "limit":
