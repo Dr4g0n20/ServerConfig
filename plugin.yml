@@ -1,0 +1,16 @@
+name: ServerConfig
+main: serverconfig.ServerConfig
+version: 1.0
+description: Server-wide caps and limits (damage, knockback, potions, enchants, items) plus per-player speed and regen.
+commands:
+  serverconfig:
+    description: Manage ServerConfig settings
+    usage: /serverconfig <info|damage|knockback|potion|enchant|limit|speed|regen|exempt|reload>
+    aliases: [sc]
+permissions:
+  serverconfig.admin:
+    description: Use /serverconfig
+    default: op
+  serverconfig.bypass:
+    description: Not affected by any caps or limits
+    default: false

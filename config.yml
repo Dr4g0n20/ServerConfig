@@ -1,0 +1,29 @@
+# ServerConfig settings. You can edit these in-game with /serverconfig.
+# Note: saving from in-game commands rewrites this file without comments.
+
+damage:
+  max-hearts: 6            # max damage from one hit, in hearts. 0 = no cap
+  apply-to-players: true
+  apply-to-mobs: false
+  cause-caps-hearts: {}    # e.g. FALL: 10  /  ENTITY_EXPLOSION: 8
+
+knockback:
+  max-horizontal: 1.5      # max sideways knockback speed. 0 = no cap
+  max-vertical: 1.0        # max upward knockback speed. 0 = no cap
+  apply-to-mobs: false
+
+potions:
+  max-level: 10            # applies to every effect. 0 = no cap
+  per-effect: {}           # e.g. INCREASE_DAMAGE: 3
+
+enchants:
+  max-level: 10            # applies to every enchantment. 0 = no cap
+  per-enchant: {}          # e.g. DURABILITY: 5
+
+# Max amount of an item a player can carry. Format: MATERIAL@DATA: max
+# Leave out @DATA to count every variant. 0 bans the item.
+item-limits:
+  GOLDEN_APPLE@1: 8        # enchanted golden apple
+
+regen:
+  default-multiplier: 1.0  # 1 = normal, 2 = double, 0 = no natural regen
