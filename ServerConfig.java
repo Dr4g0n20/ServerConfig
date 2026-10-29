@@ -257,11 +257,11 @@ public class ServerConfig extends JavaPlugin implements Listener {
         for (Map.Entry<UUID, Double> e : regenMult.entrySet()) {
             data.set("regen." + e.getKey(), e.getValue());
         }
-        List<String> ex = new ArrayList<>();
+        List<String> exemptIds = new ArrayList<>();
         for (UUID id : exempt) {
-            ex.add(id.toString());
+            exemptIds.add(id.toString());
         }
-        data.set("exempt", ex);
+        data.set("exempt", exemptIds);
         try {
             getDataFolder().mkdirs();
             data.save(dataFile);
